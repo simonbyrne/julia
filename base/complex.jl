@@ -337,8 +337,23 @@ function exp(z::Complex)
     if isnan(zr) return Complex(zr, zi==0 ? zi : zr) end
     er = exp(zr)
     zi==0 && return Complex(er, zi)
-    wr = er*(isfinite(zi) ? cos(zi) : zi)
-    wi = er*(isfinite(zi) ? sin(zi) : zi)
+    wr = er*cos(zi)
+    wi = er*sin(zi)
+    Complex(wr, wi)
+end
+
+function expm1(z::Complex)
+    zr,zi = reim(z)
+    if isfinite(zr) && !isfinite(zi) return Complex(oftype(zr, NaN), oftype(zi, NaN)) end
+    if zr==Inf && zi==0 return Complex(zr, zi) end
+    if zr==-Inf && !isfinite(zi) return Complex(-one(zr), copysign(zero(zi), zi)) end
+    if zr==Inf && !isfinite(zi) return Complex(-zr, oftype(zr, NaN)) end
+    if isnan(zr) return Complex(zr, zi==0 ? zi : zr) end
+    erm1 = expm1(zr)
+    zi==zero(zi) && return Complex(erm1, zi)
+    er = exp(zr)
+    wr = isfinite(er) ? erm1 - 2.0*er*(sin(0.5*zi))^2 : er*cos(zi)
+    wi = er*sin(zi)
     Complex(wr, wi)
 end
 
