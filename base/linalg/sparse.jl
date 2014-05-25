@@ -95,16 +95,16 @@ end
 *(X::BitArray{1}, A::SparseMatrixCSC) = invoke(*, (AbstractVector, SparseMatrixCSC), X, A)
 # In vector-matrix multiplication, the correct orientation of the vector is assumed.
 # XXX: this is wrong (i.e. not what Arrays would do)!!
-function *{T1,T2}(X::AbstractVector{T1}, A::SparseMatrixCSC{T2})
-    A.m==length(X) || throw(DimensionMismatch(""))
-    Y = zeros(promote_type(T1,T2), A.n)
-    nzv = A.nzval
-    rv = A.rowval
-    for col =1:A.n, k=A.colptr[col]:(A.colptr[col+1]-1)
-        Y[col] += X[rv[k]] * nzv[k]
-    end
-    Y
-end
+# function *{T1,T2}(X::AbstractVector{T1}, A::SparseMatrixCSC{T2})
+#     A.m==length(X) || throw(DimensionMismatch(""))
+#     Y = zeros(promote_type(T1,T2), A.n)
+#     nzv = A.nzval
+#     rv = A.rowval
+#     for col =1:A.n, k=A.colptr[col]:(A.colptr[col+1]-1)
+#         Y[col] += X[rv[k]] * nzv[k]
+#     end
+#     Y
+# end
 
 *{TvA,TiA}(A::SparseMatrixCSC{TvA,TiA}, X::BitArray{2}) = invoke(*, (SparseMatrixCSC, AbstractMatrix), A, X)
 function (*){TvA,TiA,TX}(A::SparseMatrixCSC{TvA,TiA}, X::AbstractMatrix{TX})

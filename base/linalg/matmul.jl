@@ -3,6 +3,15 @@
 arithtype(T) = T
 arithtype(::Type{Bool}) = Int
 
+blaschar(A::StridedMatrix) = 'N'
+blaschar(A::TransposeStridedMatrix) = 'T'
+blaschar(A::ConjTransposeStridedMatrix) = 'C'
+
+blasarray(A::StridedMatrix) = A
+blasarray(A::TransposeStridedMatrix) = A.data
+blasarray(A::ConjTransposeStridedMatrix) = A.data
+
+
 # multiply by diagonal matrix as vector
 function scale!(C::AbstractMatrix, A::AbstractMatrix, b::AbstractVector)
     m, n = size(A)
@@ -27,166 +36,126 @@ end
 scale(A::AbstractMatrix, b::AbstractVector) = scale!(similar(A, promote_type(eltype(A),eltype(b))), A, b)
 scale(b::AbstractVector, A::AbstractMatrix) = scale!(similar(b, promote_type(eltype(A),eltype(b)), size(A)), b, A)
 
-# Dot products
 
-# dot{T<:BlasReal}(x::Vector{T}, y::Vector{T}) = BLAS.dot(x, y)
-*{T<:BlasReal,Conj}(x::VectorTranspose{T,Vector{T},Conj}, y::Vector{T}) = BLAS.dot(x.data, y)
-dot{T<:BlasComplex}(x::Vector{T}, y::Vector{T}) = BLAS.dotc(x, y)
-function dot{T<:BlasReal, TI<:Integer}(x::Vector{T}, rx::Union(UnitRange{TI},Range{TI}), y::Vector{T}, ry::Union(UnitRange{TI},Range{TI}))
-    length(rx)==length(ry) || throw(DimensionMismatch(""))
-    if minimum(rx) < 1 || maximum(rx) > length(x) || minimum(ry) < 1 || maximum(ry) > length(y)
-        throw(BoundsError())
-    end
-    BLAS.dot(length(rx), pointer(x)+(first(rx)-1)*sizeof(T), step(rx), pointer(y)+(first(ry)-1)*sizeof(T), step(ry))
-end
-function dot{T<:BlasComplex, TI<:Integer}(x::Vector{T}, rx::Union(UnitRange{TI},Range{TI}), y::Vector{T}, ry::Union(UnitRange{TI},Range{TI}))
-    length(rx)==length(ry) || throw(DimensionMismatch(""))
-    if minimum(rx) < 1 || maximum(rx) > length(x) || minimum(ry) < 1 || maximum(ry) > length(y)
-        throw(BoundsError())
-    end
-    BLAS.dotc(length(rx), pointer(x)+(first(rx)-1)*sizeof(T), step(rx), pointer(y)+(first(ry)-1)*sizeof(T), step(ry))
-end
-function dot(x::AbstractVector, y::AbstractVector)
+## Covec * Vec = scalar (dot product)
+
+*{T<:BlasReal}(x::CovectorVector{T}, y::Vector{T}) = BLAS.dot(x.data, y)
+*{T<:BlasComplex}(x::ConjCovectorVector{T}, y::Vector{T}) = BLAS.dotc(x.data, y)
+*{T<:BlasComplex}(x::CovectorVector{T}, y::Vector{T}) = BLAS.dotu(x.data, y)
+
+function *(x::AbstractCovector, y::AbstractVector)
     lx = length(x)
     lx==length(y) || throw(DimensionMismatch(""))
     if lx == 0
         return zero(eltype(x))*zero(eltype(y))
     end
-    s = conj(x[1])*y[1]
+    s = x[1]*y[1]
     @inbounds for i = 2:lx
-        s += conj(x[i])*y[i]
+        s += x[i]*y[i]
     end
     s
 end
-dot(x::Number, y::Number) = conj(x) * y
-Ac_mul_B(x::Vector, y::Vector) = [dot(x, y)]
-At_mul_B{T<:Real}(x::Vector{T}, y::Vector{T}) = [dot(x, y)]
-At_mul_B{T<:BlasComplex}(x::Vector{T}, y::Vector{T}) = [BLAS.dotu(x, y)]
 
-# Matrix-vector multiplication
-function (*){T<:BlasFloat,S}(A::StridedMatrix{T}, x::StridedVector{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    A_mul_B!(similar(x, TS, size(A,1)), A, convert(AbstractVector{TS}, x))
-end
+
+## Vec * Covec = Matrix
+# TODO
+
+
+## Matrix * Vec = Vec
+
 function (*){T,S}(A::AbstractMatrix{T}, x::AbstractVector{S})
     TS = promote_type(arithtype(T),arithtype(S))
-    A_mul_B!(similar(x,TS,size(A,1)),A,x)
+    mul!(similar(x,TS,size(A,1)),A,x)
 end
 
-# (*)(A::AbstractVector, B::AbstractMatrix) = reshape(A,length(A),1)*B
-*(x::Covector, A::AbstractMatrix) = (A'x')'
-*(A::Adjoint, x::AbstractVector) = gemv!(similar(x), 'C', A.data, x)
-
-A_mul_B!{T<:BlasFloat}(y::StridedVector{T}, A::StridedMatrix{T}, x::StridedVector{T}) = gemv!(y, 'N', A, x)
 for elty in (Float32,Float64)
     @eval begin
-        function A_mul_B!(y::StridedVector{Complex{$elty}}, A::StridedMatrix{Complex{$elty}}, x::StridedVector{$elty})
+        function mul!(y::StridedVector{Complex{$elty}}, A::StridedMatrix{Complex{$elty}}, x::StridedVector{$elty})
             Afl = reinterpret($elty,A,(2size(A,1),size(A,2)))
             yfl = reinterpret($elty,y)
-            gemv!(yfl,'N',Afl,x)
+            mul!(yfl, Afl, x)
             return y
         end
     end
 end
-A_mul_B!(y::StridedVector, A::StridedMatrix, x::StridedVector) = generic_matvecmul!(y, 'N', A, x)
 
-function At_mul_B{T<:BlasFloat,S}(A::StridedMatrix{T}, x::StridedVector{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    At_mul_B!(similar(x,TS,size(A,2)), A, convert(AbstractVector{TS}, x))
-end
-function At_mul_B{T,S}(A::StridedMatrix{T}, x::StridedVector{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    At_mul_B!(similar(x,TS,size(A,2)), A, x)
-end
-At_mul_B!{T<:BlasFloat}(y::StridedVector{T}, A::StridedMatrix{T}, x::StridedVector{T}) = gemv!(y, 'T', A, x)
-At_mul_B!(y::StridedVector, A::StridedMatrix, x::StridedVector) = generic_matvecmul!(y, 'T', A, x)
+function mul!{T<:BlasFloat}(y::StridedVector{T}, A::NTCStridedMatrix{T}, x::StridedVector{T})
+    stride(A, 1)==1 || return invoke(mul!,(AbstractVector{T},typeof(A),AbstractVector{T}), y, A, x)
 
-function Ac_mul_B{T<:BlasFloat,S}(A::StridedMatrix{T}, x::StridedVector{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    Ac_mul_B!(similar(x,TS,size(A,2)),A,convert(AbstractVector{TS},x))
-end
-function Ac_mul_B{T,S}(A::StridedMatrix{T}, x::StridedVector{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    Ac_mul_B!(similar(x,TS,size(A,2)), A, x)
+    (mA, nA) = size(A)
+    nA==length(x) && mA==length(y)|| throw(DimensionMismatch(""))
+
+    (mA == 0 || nA == 0) && return fill!(C,zero(T))
+    BLAS.gemv!(blaschar(A), one(T), blasarray(A), x, zero(T), y)
 end
 
-Ac_mul_B!{T<:BlasReal}(y::StridedVector{T}, A::StridedMatrix{T}, x::StridedVector{T}) = At_mul_B!(y, A, x)
-Ac_mul_B!{T<:BlasComplex}(y::StridedVector{T}, A::StridedMatrix{T}, x::StridedVector{T}) = gemv!(y, 'C', A, x)
-Ac_mul_B!(y::StridedVector, A::StridedMatrix, x::StridedVector) = generic_matvecmul!(y, 'C', A, x)
+function mul!{R}(y::AbstractVector{R}, A::AbstractMatrix, x::AbstractVector)
+    lx = length(x)
+    mA, nA = size(A)
+    lx==nA && mA==length(y) || throw(DimensionMismatch("*"))
 
-# Matrix-matrix multiplication
-
-function (*){T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    A_mul_B!(similar(B,TS,(size(A,1),size(B,2))),A,B)
+    fill!(y, zero(R))
+    @inbounds for k = 1:nA
+        b = x[k]
+        for i = 1:mA
+            y[i] += A[i,k] * b
+        end
+    end
+    y
 end
-A_mul_B!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = gemm_wrapper!(C, 'N', 'N', A, B)
+
+function mul!{R}(y::AbstractVector{R}, A::AbstractTranspose, x::AbstractVector)
+    lx = length(x)
+    mA, nA = size(A)
+    lx==nA && mA==length(y) || throw(DimensionMismatch("*"))
+
+    @inbounds for k = 1:mA
+        s = zero(R)
+        for i = 1:nA
+            s += A[k,i] * x[i]
+        end
+        y[k] = s
+    end
+    y
+end
+
+## Covec * Matrix = Covec
+
+*(x::Covector, A::AbstractMatrix) = (A.' * x.').'
+*(x::ConjCovector, A::AbstractMatrix) = (A' * x')'
+
+
+## Matrix * Matrix = Matrix
+
+function *{T,S}(A::AbstractMatrix{T},B::AbstractMatrix{S})
+    TS = promote_type(arithtype(T),arithtype(S))
+    mul!(similar(B,TS,(size(A,1),size(B,2))), A, B)
+end
+
+
 for elty in (Float32,Float64)
     @eval begin
-        function A_mul_B!(C::StridedMatrix{Complex{$elty}}, A::StridedMatrix{Complex{$elty}}, B::StridedMatrix{$elty})
+        function mul!(C::StridedMatrix{Complex{$elty}}, A::StridedMatrix{Complex{$elty}}, B::StridedMatrix{$elty})
             Afl = reinterpret($elty,A,(2size(A,1),size(A,2)))
             Cfl = reinterpret($elty,C,(2size(C,1),size(C,2)))
-            gemm_wrapper!(Cfl,'N','N',Afl,B)
+            mul!(Cfl,Afl,B)
             return C
         end
     end
 end
-A_mul_B!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'N', 'N', A, B)
 
-function At_mul_B{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    At_mul_B!(similar(B,TS,(size(A,2),size(B,2))),A,B)
-end
-At_mul_B!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = is(A,B) ? syrk_wrapper!(C, 'T', A) : gemm_wrapper!(C, 'T', 'N', A, B)
-At_mul_B!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'T', 'N', A, B)
-
-function A_mul_Bt{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    A_mul_Bt!(similar(B,TS,(size(A,1),size(B,1))),A,B)
-end
-A_mul_Bt!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = is(A,B) ? syrk_wrapper!(C, 'N', A) : gemm_wrapper!(C, 'N', 'T', A, B)
 for elty in (Float32,Float64)
     @eval begin
-        function A_mul_Bt!(C::StridedMatrix{Complex{$elty}}, A::StridedMatrix{Complex{$elty}}, B::StridedMatrix{$elty})
+        function mul!(C::StridedMatrix{Complex{$elty}}, A::StridedMatrix{Complex{$elty}}, B::TransposeStridedMatrix{$elty})
             Afl = reinterpret($elty,A,(2size(A,1),size(A,2)))
             Cfl = reinterpret($elty,C,(2size(C,1),size(C,2)))
-            gemm_wrapper!(Cfl,'N','T',Afl,B)
+            mul!(Cfl,Afl,B.data)
             return C
         end
     end
 end
-A_mul_Bt!(C::StridedVecOrMat, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'N', 'T', A, B)
 
-function At_mul_Bt{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    At_mul_Bt!(similar(B,TS,(size(A,2),size(B,1))),A,B)
-end
-At_mul_Bt!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = gemm_wrapper!(C, 'T', 'T', A, B)
-At_mul_Bt!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'T', 'T', A, B)
 
-Ac_mul_B{T<:BlasReal}(A::StridedMatrix{T}, B::StridedMatrix{T}) = At_mul_B(A, B)
-Ac_mul_B!{T<:BlasReal}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = At_mul_B!(C, A, B)
-function Ac_mul_B{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    Ac_mul_B!(similar(B,TS,(size(A,2),size(B,2))),A,B)
-end
-Ac_mul_B!{T<:BlasComplex}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = is(A,B) ? herk_wrapper!(C,'C',A) : gemm_wrapper!(C,'C', 'N', A, B)
-Ac_mul_B!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'C', 'N', A, B)
-
-A_mul_Bc{T<:BlasFloat,S<:BlasReal}(A::StridedMatrix{T}, B::StridedMatrix{S}) = A_mul_Bt(A, B)
-A_mul_Bc!{T<:BlasFloat,S<:BlasReal}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{S}) = A_mul_Bt!(C, A, B)
-function A_mul_Bc{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
-    TS = promote_type(arithtype(T),arithtype(S))
-    A_mul_Bc!(similar(B,TS,(size(A,1),size(B,1))),A,B)
-end
-A_mul_Bc!{T<:BlasComplex}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = is(A,B) ? herk_wrapper!(C, 'N', A) : gemm_wrapper!(C, 'N', 'C', A, B)
-A_mul_Bc!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'N', 'C', A, B)
-
-Ac_mul_Bc{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S}) = Ac_mul_Bc!(similar(B,promote_type(arithtype(T),arithtype(S)), (size(A,2), size(B,1))), A, B)
-Ac_mul_Bc!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}) = gemm_wrapper!(C, 'C', 'C', A, B)
-Ac_mul_Bc!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'C', 'C', A, B)
-Ac_mul_Bt{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S}) = Ac_mul_Bt(similar(B, promote_type(arithtype(A),arithtype(B)), (size(A,2), size(B,1))), A, B)
-Ac_mul_Bt!(C::StridedMatrix, A::StridedMatrix, B::StridedMatrix) = generic_matmatmul!(C, 'C', 'T', A, B)
 
 # Supporting functions for matrix multiplication
 
@@ -207,108 +176,45 @@ function copytri!(A::StridedMatrix, uplo::Char, conjugate::Bool=false)
     A
 end
 
-function gemv!{T<:BlasFloat}(y::StridedVector{T}, tA::Char, A::StridedMatrix{T}, x::StridedVector{T})
-    stride(A, 1)==1 || return generic_matvecmul!(y, tA, A, x)
+function mul!{T<:BlasFloat}(C::StridedMatrix{T}, A::NTCStridedMatrix{T}, B::NTCStridedMatrix{T})
+    (stride(A, 1) == stride(B, 1) == 1) || return invoke(mul!,(AbstractMatrix{T},AbstractMatrix{T},AbstractMatrix{T}), C, A, B)
+    
+    mA, nA = size(A)
+    mB, nB = size(B)
+    mC, nC = size(C)
 
-    if tA != 'N'
-        (nA, mA) = size(A)
+    mB == nA && mC == mA && nC == nB || throw(DimensionMismatch("*"))
+
+    (mA == 0 || nA == 0 || nB == 0) && return fill!(C,zero(T))
+    mA == 2 && nA == 2 && nB == 2 && return mul22!(C,A,B)
+    mA == 3 && nA == 3 && nB == 3 && return mul33!(C,A,B)
+    
+    if istranspose(A,B)
+        copytri!(BLAS.syrk!('U', blaschar(A), one(T), blasarray(A), zero(T), C), 'U')
+    elseif isctranspose(A,B)
+        copytri!(BLAS.herk!('U', blaschar(A), one(T), blasarray(A), zero(T), C), 'U', true)
     else
-        (mA, nA) = size(A)
+        BLAS.gemm!(blaschar(A), blaschar(B), one(T), blasarray(A), blasarray(B), zero(T), C)
     end
-
-    nA==length(x) || throw(DimensionMismatch(""))
-    mA==length(y) || throw(DimensionMismatch(""))
-    mA == 0 && return zeros(T, 0)
-    nA == 0 && return zeros(T, mA)
-    return BLAS.gemv!(tA, one(T), A, x, zero(T), y)
-end
-
-function syrk_wrapper!{T<:BlasFloat}(C::StridedMatrix{T}, tA::Char, A::StridedMatrix{T})
-    nC = chksquare(C)
-    if tA == 'T'
-        (nA, mA) = size(A)
-        tAt = 'N'
-    else
-        (mA, nA) = size(A)
-        tAt = 'T'
-    end
-    nC == mA || throw(DimensionMismatch("output matrix has size: $(nC), but should have size $(mA)"))
-    if mA == 0 || nA == 0; return C; end
-    if mA == 2 && nA == 2; return matmul2x2!(C,tA,tAt,A,A); end
-    if mA == 3 && nA == 3; return matmul3x3!(C,tA,tAt,A,A); end
-
-    stride(A, 1) == 1 || (return generic_matmatmul!(C, tA, tAt, A, A))
-    copytri!(BLAS.syrk!('U', tA, one(T), A, zero(T), C), 'U')
-end
-
-function herk_wrapper!{T<:BlasFloat}(C::StridedMatrix{T}, tA::Char, A::StridedMatrix{T})
-    nC = chksquare(C)
-    if tA == 'C'
-        (nA, mA) = size(A)
-        tAt = 'N'
-    else
-        (mA, nA) = size(A)
-        tAt = 'C'
-    end
-    nC == mA || throw(DimensionMismatch("output matrix has size: $(nC), but should have size $(mA)"))
-    if mA == 0 || nA == 0; return C; end
-    if mA == 2 && nA == 2; return matmul2x2!(C,tA,tAt,A,A); end
-    if mA == 3 && nA == 3; return matmul3x3!(C,tA,tAt,A,A); end
-
-    stride(A, 1) == 1 || (return generic_matmatmul!(C,tA, tAt, A, A))
-
-    # Result array does not need to be initialized as long as beta==0
-    #    C = Array(T, mA, mA)
-
-    copytri!(BLAS.herk!('U', tA, one(T), A, zero(T), C), 'U', true)
-end
-
-function gemm_wrapper{T<:BlasFloat}(tA::Char, tB::Char,
-                             A::StridedVecOrMat{T},
-                             B::StridedMatrix{T})
-    mA, nA = lapack_size(tA, A)
-    mB, nB = lapack_size(tB, B)
-    C = similar(B, T, mA, nB)
-    gemm_wrapper!(C, tA, tB, A, B)
-end
-
-function gemm_wrapper!{T<:BlasFloat}(C::StridedVecOrMat{T}, tA::Char, tB::Char,
-                             A::StridedVecOrMat{T},
-                             B::StridedMatrix{T})
-    mA, nA = lapack_size(tA, A)
-    mB, nB = lapack_size(tB, B)
-
-    nA==mB || throw(DimensionMismatch("*"))
-
-    if mA == 0 || nA == 0 || nB == 0; return zeros(T, mA, nB); end
-    if mA == 2 && nA == 2 && nB == 2; return matmul2x2!(C,tA,tB,A,B); end
-    if mA == 3 && nA == 3 && nB == 3; return matmul3x3!(C,tA,tB,A,B); end
-
-    stride(A, 1)==stride(B, 1)==1 || (return generic_matmatmul!(C, tA, tB, A, B))
-    BLAS.gemm!(tA, tB, one(T), A, B, zero(T), C)
 end
 
 # blas.jl defines matmul for floats; other integer and mixed precision
 # cases are handled here
 
-lapack_size(t::Char, M::AbstractVecOrMat) = (size(M, t=='N' ? 1:2), size(M, t=='N' ? 2:1))
-
-function copy!{R,S}(B::AbstractMatrix{R}, ir_dest::UnitRange{Int}, jr_dest::UnitRange{Int}, tM::Char, M::AbstractMatrix{S}, ir_src::UnitRange{Int}, jr_src::UnitRange{Int})
-    if tM == 'N'
-        copy!(B, ir_dest, jr_dest, M, ir_src, jr_src)
-    else
-        Base.copy_transpose!(B, ir_dest, jr_dest, M, jr_src, ir_src)
-        tM == 'C' && conj!(B)
-    end
+function copy!(B::AbstractMatrix, ir_dest::UnitRange{Int}, jr_dest::UnitRange{Int}, M::Transpose, ir_src::UnitRange{Int}, jr_src::UnitRange{Int})
+    copy_transpose!(B, ir_dest, jr_dest, M.data, jr_src, ir_src)
+end
+function copy!(B::AbstractMatrix, ir_dest::UnitRange{Int}, jr_dest::UnitRange{Int}, M::ConjTranspose, ir_src::UnitRange{Int}, jr_src::UnitRange{Int})
+    copy_transpose!(B, ir_dest, jr_dest, M.data, jr_src, ir_src)
+    conj!(B)
 end
 
-function copy_transpose!{R,S}(B::AbstractMatrix{R}, ir_dest::UnitRange{Int}, jr_dest::UnitRange{Int}, tM::Char, M::AbstractVecOrMat{S}, ir_src::UnitRange{Int}, jr_src::UnitRange{Int})
-    if tM == 'N'
-        Base.copy_transpose!(B, ir_dest, jr_dest, M, ir_src, jr_src)
-    else
-        copy!(B, ir_dest, jr_dest, M, jr_src, ir_src)
-        tM == 'C' && conj!(B)
-    end
+function copy_transpose!(B::AbstractMatrix, ir_dest::UnitRange{Int}, jr_dest::UnitRange{Int}, M::Transpose, ir_src::UnitRange{Int}, jr_src::UnitRange{Int})
+    copy!(B, ir_dest, jr_dest, M, jr_src, ir_src)
+end
+function copy_transpose!(B::AbstractMatrix, ir_dest::UnitRange{Int}, jr_dest::UnitRange{Int}, M::ConjTranspose, ir_src::UnitRange{Int}, jr_src::UnitRange{Int})
+    copy!(B, ir_dest, jr_dest, M, jr_src, ir_src)
+    conj!(B)
 end
 
 # TODO: It will be faster for large matrices to convert to float,
@@ -317,66 +223,22 @@ end
 # NOTE: the generic version is also called as fallback for
 #       strides != 1 cases
 
-function generic_matvecmul!{T,S,R}(C::AbstractVector{R}, tA, A::AbstractMatrix{T}, B::AbstractVector{S})
-    mB = length(B)
-    mA, nA = lapack_size(tA, A)
-    mB==nA || throw(DimensionMismatch("*"))
-    mA==length(C) || throw(DimensionMismatch("*"))
-    z = zero(R)
-
-    Astride = size(A, 1)
-
-    if tA == 'T'  # fastest case
-        for k = 1:mA
-            aoffs = (k-1)*Astride
-            s = z
-            for i = 1:nA
-                s += A[aoffs+i] * B[i]
-            end
-            C[k] = s
-        end
-    elseif tA == 'C'
-        for k = 1:mA
-            aoffs = (k-1)*Astride
-            s = z
-            for i = 1:nA
-                s += conj(A[aoffs+i]) * B[i]
-            end
-            C[k] = s
-        end
-        else # tA == 'N'
-        fill!(C, z)
-        for k = 1:mB
-            aoffs = (k-1)*Astride
-            b = B[k]
-            for i = 1:mA
-                C[i] += A[aoffs+i] * b
-            end
-        end
-    end
-    C
-end
-
-function generic_matmatmul{T,S}(tA, tB, A::AbstractVecOrMat{T}, B::AbstractMatrix{S})
-    mA, nA = lapack_size(tA, A)
-    mB, nB = lapack_size(tB, B)
-    C = similar(B, promote_type(arithtype(T),arithtype(S)), mA, nB)
-    generic_matmatmul!(C, tA, tB, A, B)
-end
 
 const tilebufsize = 10800  # Approximately 32k/3
 const Abuf = Array(Uint8, tilebufsize)
 const Bbuf = Array(Uint8, tilebufsize)
 const Cbuf = Array(Uint8, tilebufsize)
 
-function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVecOrMat{T}, B::AbstractMatrix{S})
-    mA, nA = lapack_size(tA, A)
-    mB, nB = lapack_size(tB, B)
-    mB==nA || throw(DimensionMismatch("*"))
-    if size(C,1) != mA || size(C,2) != nB; throw(DimensionMismatch("*")); end
+function mul!{R}(C::AbstractMatrix{R}, A::AbstractMatrix, B::AbstractMatrix)
+    mA, nA = size(A)
+    mB, nB = size(B)
+    mC, nC = size(C)
 
-    if mA == nA == nB == 2; return matmul2x2!(C, tA, tB, A, B); end
-    if mA == nA == nB == 3; return matmul3x3!(C, tA, tB, A, B); end
+    mB == nA && mC == mA && nC == nB || throw(DimensionMismatch("*"))
+
+    (mA == 0 || nA == 0 || nB == 0) && return fill!(C,zero(T))
+    mA == 2 && nA == 2 && nB == 2 && return mul22!(C,A,B)
+    mA == 3 && nA == 3 && nB == 3 && return mul33!(C,A,B)
 
     @inbounds begin
     if isbits(R)
@@ -388,8 +250,8 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
         z = zero(R)
 
         if mA < tile_size && nA < tile_size && nB < tile_size
-            Base.copy_transpose!(Atile, 1:nA, 1:mA, tA, A, 1:mA, 1:nA)
-            copy!(Btile, 1:mB, 1:nB, tB, B, 1:mB, 1:nB)
+            copy_transpose!(Atile, 1:nA, 1:mA, A, 1:mA, 1:nA)
+            copy!(Btile, 1:mB, 1:nB, B, 1:mB, 1:nB)
             for j = 1:nB
                 boff = (j-1)*tile_size
                 for i = 1:mA
@@ -413,8 +275,8 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
                     for kb = 1:tile_size:nA
                         klim = min(kb+tile_size-1,mB)
                         klen = klim-kb+1
-                        Base.copy_transpose!(Atile, 1:klen, 1:ilen, tA, A, ib:ilim, kb:klim)
-                        copy!(Btile, 1:klen, 1:jlen, tB, B, kb:klim, jb:jlim)
+                        copy_transpose!(Atile, 1:klen, 1:ilen, A, ib:ilim, kb:klim)
+                        copy!(Btile, 1:klen, 1:jlen, B, kb:klim, jb:jlim)
                         for j=1:jlen
                             bcoff = (j-1)*tile_size
                             for i = 1:ilen
@@ -433,84 +295,12 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
         end
     else
         # Multiplication for non-plain-data uses the naive algorithm
-        if tA == 'N'
-            if tB == 'N'
-                for i = 1:mA, j = 1:nB
-                    Ctmp = A[i, 1]*B[1, j]
-                    for k = 2:nA
-                        Ctmp += A[i, k]*B[k, j]
-                    end
-                    C[i,j] = Ctmp
-                end
-            elseif tB == 'T'
-                for i = 1:mA, j = 1:nB
-                    Ctmp = A[i, 1]*B[j, 1]
-                    for k = 2:nA
-                        Ctmp += A[i, k]*B[j, k]
-                    end
-                    C[i,j] = Ctmp
-                end
-            else
-                for i = 1:mA, j = 1:nB
-                    Ctmp = A[i, 1]*conj(B[j, 1])
-                    for k = 2:nA
-                        Ctmp += A[i, k]*conj(B[j, k])
-                    end
-                    C[i,j] = Ctmp
-                end
+        for i = 1:mA, j = 1:nB
+            Ctmp = A[i, 1]*B[1, j]
+            for k = 2:nA
+                Ctmp += A[i, k]*B[k, j]
             end
-        elseif tA == 'T'
-            if tB == 'N'
-                for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i]*B[1, j]
-                    for k = 2:nA
-                        Ctmp += A[k, i]*B[k, j]
-                    end
-                    C[i,j] = Ctmp
-                end
-            elseif tB == 'T'
-                for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i]*B[j, 1]
-                    for k = 2:nA
-                        Ctmp += A[k, i]*B[j, k]
-                    end
-                    C[i,j] = Ctmp
-                end
-            else
-                for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i]*conj(B[j, 1])
-                    for k = 2:nA
-                        Ctmp += A[k, i]*conj(B[j, k])
-                    end
-                    C[i,j] = Ctmp
-                end
-            end
-        else
-            if tB == 'N'
-                for i = 1:mA, j = 1:nB
-                    Ctmp = conj(A[1, i])*B[1, j]
-                    for k = 2:nA
-                        Ctmp += conj(A[k, i])*B[k, j]
-                    end
-                    C[i,j] = Ctmp
-                end
-            elseif tB == 'T'
-                for i = 1:mA, j = 1:nB
-                    Ctmp = conj(A[1, i])*B[j, 1]
-                    for k = 2:nA
-                        Ctmp += conj(A[k, i])*B[j, k]
-                    end
-                    C[i,j] = Ctmp
-                end
-            else
-                for i = 1:mA, j = 1:nB
-                    Ctmp = conj(A[1, i])*conj(B[j, 1])
-                    for k = 2:nA
-                        Ctmp += conj(A[k, i])*conj(B[j, k])
-                    end
-                    C[i,j] = Ctmp
-                end
-            end
+            C[i,j] = Ctmp
         end
     end
     end # @inbounds
@@ -519,25 +309,14 @@ end
 
 
 # multiply 2x2 matrices
-function matmul2x2{T,S}(tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
-    matmul2x2!(similar(B, promote_type(T,S), 2, 2), tA, tB, A, B)
-end
+# function matmul2x2{T,S}(tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
+#     matmul2x2!(similar(B, promote_type(T,S), 2, 2), tA, tB, A, B)
+# end
 
-function matmul2x2!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
-    if tA == 'T'
-        A11 = A[1,1]; A12 = A[2,1]; A21 = A[1,2]; A22 = A[2,2]
-    elseif tA == 'C'
-        A11 = conj(A[1,1]); A12 = conj(A[2,1]); A21 = conj(A[1,2]); A22 = conj(A[2,2])
-    else
-        A11 = A[1,1]; A12 = A[1,2]; A21 = A[2,1]; A22 = A[2,2]
-    end
-    if tB == 'T'
-        B11 = B[1,1]; B12 = B[2,1]; B21 = B[1,2]; B22 = B[2,2]
-    elseif tB == 'C'
-        B11 = conj(B[1,1]); B12 = conj(B[2,1]); B21 = conj(B[1,2]); B22 = conj(B[2,2])
-    else
-        B11 = B[1,1]; B12 = B[1,2]; B21 = B[2,1]; B22 = B[2,2]
-    end
+function mul22!(C::AbstractMatrix, A::AbstractMatrix, B::AbstractMatrix)
+    A11 = A[1,1]; A12 = A[1,2]; A21 = A[2,1]; A22 = A[2,2]
+    B11 = B[1,1]; B12 = B[1,2]; B21 = B[2,1]; B22 = B[2,2]
+    
     C[1,1] = A11*B11 + A12*B21
     C[1,2] = A11*B12 + A12*B22
     C[2,1] = A21*B11 + A22*B21
@@ -545,39 +324,19 @@ function matmul2x2!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B
     C
 end
 
-# Multiply 3x3 matrices
-function matmul3x3{T,S}(tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
-    matmul3x3!(similar(B, promote_type(T,S), 3, 3), tA, tB, A, B)
-end
+# # Multiply 3x3 matrices
+# function matmul3x3{T,S}(tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
+#     matmul3x3!(similar(B, promote_type(T,S), 3, 3), tA, tB, A, B)
+# end
 
-function matmul3x3!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
-    if tA == 'T'
-        A11 = A[1,1]; A12 = A[2,1]; A13 = A[3,1];
-        A21 = A[1,2]; A22 = A[2,2]; A23 = A[3,2];
-        A31 = A[1,3]; A32 = A[2,3]; A33 = A[3,3];
-    elseif tA == 'C'
-        A11 = conj(A[1,1]); A12 = conj(A[2,1]); A13 = conj(A[3,1]);
-        A21 = conj(A[1,2]); A22 = conj(A[2,2]); A23 = conj(A[3,2]);
-        A31 = conj(A[1,3]); A32 = conj(A[2,3]); A33 = conj(A[3,3]);
-    else
-        A11 = A[1,1]; A12 = A[1,2]; A13 = A[1,3];
-        A21 = A[2,1]; A22 = A[2,2]; A23 = A[2,3];
-        A31 = A[3,1]; A32 = A[3,2]; A33 = A[3,3];
-    end
+function mul33!{T,S,R}(C::AbstractMatrix{R}, A::AbstractMatrix{T}, B::AbstractMatrix{S})
+    A11 = A[1,1]; A12 = A[1,2]; A13 = A[1,3];
+    A21 = A[2,1]; A22 = A[2,2]; A23 = A[2,3];
+    A31 = A[3,1]; A32 = A[3,2]; A33 = A[3,3];
 
-    if tB == 'T'
-        B11 = B[1,1]; B12 = B[2,1]; B13 = B[3,1];
-        B21 = B[1,2]; B22 = B[2,2]; B23 = B[3,2];
-        B31 = B[1,3]; B32 = B[2,3]; B33 = B[3,3];
-    elseif tB == 'C'
-        B11 = conj(B[1,1]); B12 = conj(B[2,1]); B13 = conj(B[3,1]);
-        B21 = conj(B[1,2]); B22 = conj(B[2,2]); B23 = conj(B[3,2]);
-        B31 = conj(B[1,3]); B32 = conj(B[2,3]); B33 = conj(B[3,3]);
-    else
-        B11 = B[1,1]; B12 = B[1,2]; B13 = B[1,3];
-        B21 = B[2,1]; B22 = B[2,2]; B23 = B[2,3];
-        B31 = B[3,1]; B32 = B[3,2]; B33 = B[3,3];
-    end
+    B11 = B[1,1]; B12 = B[1,2]; B13 = B[1,3];
+    B21 = B[2,1]; B22 = B[2,2]; B23 = B[2,3];
+    B31 = B[3,1]; B32 = B[3,2]; B33 = B[3,3];
 
     C[1,1] = A11*B11 + A12*B21 + A13*B31
     C[1,2] = A11*B12 + A12*B22 + A13*B32
