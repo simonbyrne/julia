@@ -49,6 +49,7 @@ transpose{T}(A::AbstractVector{T}) = Covector{T, typeof(A)}(A)
 
 ctranspose(A::ConjCovector) = A.data
 ctranspose(A::Covector) = A.data
+transpose(A::Covector) = A.data
 ctranspose{T<:Complex}(A::Covector{T}) = error("Cannot alternate Covector and ConjCovector")
 transpose(A::ConjCovector) = error("Cannot alternate Covector and ConjCovector")
 
