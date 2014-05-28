@@ -1319,7 +1319,7 @@
 	      ,.(map (lambda (x) `(,what ,x)) vars)
 	      ,.(reverse assigns)))
 	(let ((x (car b)))
-	  (cond ((and (pair? x) (memq (car x) assignment-ops))
+	  (cond ((assignment-like? x)
 		 (loop (cdr b)
 		       (cons (assigned-name (cadr x)) vars)
 		       (cons `(,(car x) ,(decl-var (cadr x)) ,(caddr x))
@@ -2330,7 +2330,9 @@
 		 (list* (if tail `(return ,(car r)) (car r))
 		 `(= ,LHS ,(car r))
 		 (cdr r))))
-		 ((effect-free? RHS)
+		 ((and (effect-free? RHS)
+		       ;; need temp var for `x::Int = x` (issue #6896)
+		       (not (eq? RHS (decl-var LHS))))
 		  (cond ((symbol? dest)  (list `(= ,LHS ,RHS)
 					       `(= ,dest ,RHS)))
 			(dest  (list (if tail `(return ,RHS) RHS)
@@ -3249,7 +3251,7 @@ So far only the second case can actually occur.
   (if (or (not (pair? e)) (quoted? e))
       '()
       (case (car e)
-	((escape let)  '())
+	((escape)  '())
 	((= function)
 	 (append! (filter
 		   symbol?

@@ -86,7 +86,13 @@ function mul!{T<:BlasFloat}(y::StridedVector{T}, A::NTCStridedMatrix{T}, x::Stri
     nA==length(x) && mA==length(y)|| throw(DimensionMismatch(""))
 
     (mA == 0 || nA == 0) && return fill!(C,zero(T))
-    BLAS.gemv!(blaschar(A), one(T), blasarray(A), x, zero(T), y)
+
+    if Base.blas_vendor() == :openblas
+        ## Avoid calling BLAS.gemv! when OpenBLAS is being used until #6941 is fixed.
+        invoke(mul!,(AbstractVector{T},typeof(A),AbstractVector{T}), y, A, x)
+    else
+        BLAS.gemv!(blaschar(A), one(T), blasarray(A), x, zero(T), y)
+    end
 end
 
 function mul!{R}(y::AbstractVector{R}, A::AbstractMatrix, x::AbstractVector)

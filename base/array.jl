@@ -1102,24 +1102,6 @@ function findnz{T}(A::StridedMatrix{T})
     return (I, J, NZs)
 end
 
-function nonzeros{T}(A::StridedArray{T})
-    nnzA = countnz(A)
-    V = similar(A, T, nnzA)
-    count = 1
-    if nnzA > 0
-        for i=1:length(A)
-            Ai = A[i]
-            if Ai != 0
-                V[count] = Ai
-                count += 1
-            end
-        end
-    end
-    return V
-end
-
-nonzeros(x::Number) = x == 0 ? Array(typeof(x),0) : [x]
-
 function findmax(a)
     if isempty(a)
         error("array must be non-empty")
@@ -1236,6 +1218,96 @@ function filter(f::Function, a::Vector)
     end
     return r
 end
+
+## Transpose ##
+const transposebaselength=64
+function transpose!(B::StridedMatrix,A::StridedMatrix)
+    m, n = size(A)
+    size(B) == (n,m) || throw(DimensionMismatch("transpose"))
+
+    if m*n<=4*transposebaselength
+        @inbounds begin
+            for j = 1:n
+                for i = 1:m
+                    B[j,i] = A[i,j]
+                end
+            end
+        end
+    else
+        transposeblock!(B,A,m,n,0,0)
+    end
+    return B
+end
+function transposeblock!(B::StridedMatrix,A::StridedMatrix,m::Int,n::Int,offseti::Int,offsetj::Int)
+    if m*n<=transposebaselength
+        @inbounds begin
+            for j = offsetj+(1:n)
+                for i = offseti+(1:m)
+                    B[j,i] = A[i,j]
+                end
+            end
+        end
+    elseif m>n
+        newm=m>>1
+        transposeblock!(B,A,newm,n,offseti,offsetj)
+        transposeblock!(B,A,m-newm,n,offseti+newm,offsetj)
+    else
+        newn=n>>1
+        transposeblock!(B,A,m,newn,offseti,offsetj)
+        transposeblock!(B,A,m,n-newn,offseti,offsetj+newn)
+    end
+    return B
+end
+function ctranspose!(B::StridedMatrix,A::StridedMatrix)
+    m, n = size(A)
+    size(B) == (n,m) || throw(DimensionMismatch("transpose"))
+
+    if m*n<=4*transposebaselength
+        @inbounds begin
+            for j = 1:n
+                for i = 1:m
+                    B[j,i] = conj(A[i,j])
+                end
+            end
+        end
+    else
+        ctransposeblock!(B,A,m,n,0,0)
+    end
+    return B
+end
+function ctransposeblock!(B::StridedMatrix,A::StridedMatrix,m::Int,n::Int,offseti::Int,offsetj::Int)
+    if m*n<=transposebaselength
+        @inbounds begin
+            for j = offsetj+(1:n)
+                for i = offseti+(1:m)
+                    B[j,i] = conj(A[i,j])
+                end
+            end
+        end
+    elseif m>n
+        newm=m>>1
+        ctransposeblock!(B,A,newm,n,offseti,offsetj)
+        ctransposeblock!(B,A,m-newm,n,offseti+newm,offsetj)
+    else
+        newn=n>>1
+        ctransposeblock!(B,A,m,newn,offseti,offsetj)
+        ctransposeblock!(B,A,m,n-newn,offseti,offsetj+newn)
+    end
+    return B
+end
+
+# function transpose(A::StridedMatrix)
+#     B = similar(A, size(A, 2), size(A, 1))
+#     transpose!(B, A)
+# end
+# function ctranspose(A::StridedMatrix)
+#     B = similar(A, size(A, 2), size(A, 1))
+#     ctranspose!(B, A)
+# end
+# ctranspose{T<:Real}(A::StridedVecOrMat{T}) = transpose(A)
+
+# transpose(x::StridedVector) = [ x[j] for i=1, j=1:size(x,1) ]
+# ctranspose{T}(x::StridedVector{T}) = T[ conj(x[j]) for i=1, j=1:size(x,1) ]
 
 # set-like operators for vectors
 # These are moderately efficient, preserve order, and remove dupes.

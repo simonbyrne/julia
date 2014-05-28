@@ -38,6 +38,8 @@ IOBuffer(readable::Bool,writable::Bool) = IOBuffer(Uint8[],readable,writable)
 IOBuffer() = IOBuffer(Uint8[], true, true)
 IOBuffer(maxsize::Int) = (x=IOBuffer(Array(Uint8,maxsize),true,true,maxsize); x.size=0; x)
 
+is_maxsize_unlimited(io::IOBuffer) = (io.maxsize == typemax(Int))
+
 read!(from::IOBuffer, a::Array) = read_sub(from, a, 1, length(a))
 
 function read_sub{T}(from::IOBuffer, a::Array{T}, offs, nel)
@@ -192,6 +194,11 @@ function takebuf_array(io::IOBuffer)
 end
 takebuf_string(io::IOBuffer) = bytestring(takebuf_array(io))
 
+function write(to::IOBuffer, from::IOBuffer) 
+    write(to, pointer(from.data,from.ptr), nb_available(from))
+    from.ptr += nb_available(from)
+end
+
 write(to::IOBuffer, p::Ptr, nb::Integer) = write(to, p, int(nb))
 function write(to::IOBuffer, p::Ptr, nb::Int)
     !to.writable && error("write failed")
@@ -208,10 +215,15 @@ function write_sub{T}(to::IOBuffer, a::Array{T}, offs, nel)
     if offs+nel-1 > length(a) || offs < 1 || nel < 0
         throw(BoundsError())
     end
-    if !isbits(T)
-        error("write to IOBuffer only supports bits types or arrays of bits types; got "*string(T))
+    if isbits(T)
+        write(to, pointer(a,offs), nel*sizeof(T))
+    else
+        nb = 0
+        for i = offs:offs+nel-1
+            nb += write(to, a[i])
+        end
+        nb
     end
-    write(to, pointer(a,offs), nel*sizeof(T))
 end
 
 write(to::IOBuffer, a::Array) = write_sub(to, a, 1, length(a))

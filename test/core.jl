@@ -655,6 +655,20 @@ end
                                      x -> x+1, 314158)) == 314159
 @test unsafe_pointer_to_objref(pointer_from_objref(e+pi)) == e+pi
 
+begin
+    local a, aa
+    a = [1,2,3]
+    aa = pointer_to_array(pointer(a), length(a))
+    @test aa == a
+    aa = pointer_to_array(pointer(a), (length(a),))
+    @test aa == a
+    aa = pointer_to_array(pointer(a), uint(length(a)))
+    @test aa == a
+    aa = pointer_to_array(pointer(a), uint16(length(a)))
+    @test aa == a
+    @test_throws ErrorException pointer_to_array(pointer(a), -3)
+end
+
 immutable FooBar
     foo::Int
     bar::Int
@@ -1646,3 +1660,22 @@ function segfault6793(;gamma=1)
     nothing
 end
 @test segfault6793() === nothing
+
+# issue #6896
+g6896(x) = x::Int=x
+@test g6896(5.0) === 5.0
+f6896(x) = y::Int=x
+@test f6896(5.0) === 5.0
+
+# issue #6938
+module M6938
+macro mac()
+    quote
+        let
+            y = 0
+            y
+        end
+    end
+end
+end
+@test @M6938.mac() == 0

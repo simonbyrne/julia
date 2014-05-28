@@ -451,6 +451,7 @@ export
     widemul,
     zero,
     √,
+    ∛,
 
 # specfun
     airy,
@@ -536,7 +537,7 @@ export
     minimum,
     minmax,
     ndims,
-    nfilled,
+    nnz,
     nonzeros,
     nthperm!,
     nthperm,

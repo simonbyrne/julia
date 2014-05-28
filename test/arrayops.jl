@@ -3,7 +3,7 @@
 ## basics
 
 @test length([1, 2, 3]) == 3
-@test nfilled([1, 2, 3]) == 3
+@test countnz([1, 2, 3]) == 3
 
 a = ones(4)
 b = a+a
@@ -951,3 +951,9 @@ let
     for i=1:5; push!(x, 1.0); end
     @test dot(zeros(5),x) == 0.0
 end
+
+# issue #6977
+@test []' == Array(None,1,0)
+
+# issue #6996
+@test { 1 2; 3 4 }' == { 1 2; 3 4 }.'

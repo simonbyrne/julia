@@ -1,9 +1,9 @@
 module REPL
 
 using Base.Meta
-using Base.Terminals
-using Base.LineEdit
-using Base.REPLCompletions
+using ..Terminals
+using ..LineEdit
+using ..REPLCompletions
 
 export
     BasicREPL,
@@ -16,7 +16,7 @@ import Base:
     display,
     writemime
 
-import Base.LineEdit:
+import ..LineEdit:
     CompletionProvider,
     HistoryProvider,
     add_history,
@@ -95,6 +95,7 @@ function start_repl_backend(repl_channel::RemoteRef, response_channel::RemoteRef
             eval_user_input(ast, backend)
         end
     end
+    backend
 end
 
 function display_error(io::IO, er, bt)
@@ -115,9 +116,11 @@ function display(d::REPLDisplay, ::MIME"text/plain", x)
 end
 display(d::REPLDisplay, x) = display(d, MIME("text/plain"), x)
 
-print_response(d::REPLDisplay, val::ANY, bt, show_value::Bool, have_color::Bool) =
-    print_response(d, outstream(d.repl), val, bt, show_value, have_color)
-function print_response(d::REPLDisplay, errio::IO, val::ANY, bt, show_value::Bool, have_color::Bool)
+function print_response(repl::AbstractREPL, val::ANY, bt, show_value::Bool, have_color::Bool)
+    repl.waserror = bt !== nothing
+    print_response(outstream(repl), val, bt, show_value, have_color)
+end
+function print_response(errio::IO, val::ANY, bt, show_value::Bool, have_color::Bool)
     while true
         try
             if bt !== nothing
@@ -127,7 +130,7 @@ function print_response(d::REPLDisplay, errio::IO, val::ANY, bt, show_value::Boo
             else
                 if val !== nothing && show_value
                     try
-                        display(d, val)
+                        display(val)
                     catch err
                         println(errio, "Error showing value of type ", typeof(val), ":")
                         rethrow(err)
@@ -146,23 +149,33 @@ function print_response(d::REPLDisplay, errio::IO, val::ANY, bt, show_value::Boo
     end
 end
 
+# A reference to a backend
+immutable REPLBackendRef
+    repl_channel::RemoteRef
+    response_channel::RemoteRef
+end
+
 function run_repl(repl::AbstractREPL)
     repl_channel = RemoteRef()
     response_channel = RemoteRef()
     start_repl_backend(repl_channel, response_channel)
-    run_frontend(repl, repl_channel, response_channel)
+    run_frontend(repl, REPLBackendRef(repl_channel,response_channel))
 end
 
 ## BasicREPL ##
 
 type BasicREPL <: AbstractREPL
     terminal::TextTerminal
+    waserror::Bool
+    BasicREPL(t) = new(t,false)
 end
 
 outstream(r::BasicREPL) = r.terminal
 
-function run_frontend(repl::BasicREPL, repl_channel::RemoteRef, response_channel::RemoteRef)
+function run_frontend(repl::BasicREPL, backend::REPLBackendRef)
     d = REPLDisplay(repl)
+    pushdisplay(d)
+    repl_channel, response_channel = backend.repl_channel, backend.response_channel
     while true
         write(repl.terminal, "julia> ")
         line = ""
@@ -176,13 +189,14 @@ function run_frontend(repl::BasicREPL, repl_channel::RemoteRef, response_channel
             put!(repl_channel, (ast, 1))
             val, bt = take!(response_channel)
             if !ends_with_semicolon(line)
-                print_response(d, val, bt, true, false)
+                print_response(repl, val, bt, true, false)
             end
         end
         write(repl.terminal, '\n')
     end
     # terminate backend
     put!(repl_channel, (nothing, -1))
+    popdisplay(d)
 end
 
 ## LineEditREPL ##
@@ -198,6 +212,11 @@ type LineEditREPL <: AbstractREPL
     in_shell::Bool
     in_help::Bool
     consecutive_returns::Int
+    waserror::Bool
+    interface
+    backendref::REPLBackendRef
+    LineEditREPL(t,prompt_color,input_color,answer_color,shell_color,help_color,no_history_file,in_shell,in_help) =
+        new(t,prompt_color,input_color,answer_color,shell_color,help_color,no_history_file,in_shell,in_help,0,false)
 end
 outstream(r::LineEditREPL) = r.t
 
@@ -206,7 +225,7 @@ LineEditREPL(t::TextTerminal) =  LineEditREPL(t, julia_green,
                                               Base.answer_color(),
                                               Base.text_colors[:red],
                                               Base.text_colors[:yellow],
-                                              false, false, false, 0)
+                                              false, false, false)
 
 type REPLCompletionProvider <: CompletionProvider
     r::LineEditREPL
@@ -453,6 +472,9 @@ function find_hist_file()
     end
 end
 
+backend(r::AbstractREPL) = r.backendref
+
+send_to_backend(ast, backend::REPLBackendRef) = send_to_backend(ast, backend.repl_channel, backend.response_channel)
 function send_to_backend(ast, req, rep)
     put!(req, (ast, 1))
     val, bt = take!(rep)
@@ -460,31 +482,31 @@ end
 
 have_color(s) = true
 
-function respond(f, d, main, req, rep)
+function respond(f, repl, main)
     (s,buf,ok)->begin
         if !ok
             return transition(s, :abort)
         end
         line = takebuf_string(buf)
         if !isempty(line)
-            reset(d)
-            val, bt = send_to_backend(f(line), req, rep)
+            reset(repl)
+            val, bt = send_to_backend(f(line), backend(repl))
             if !ends_with_semicolon(line) || bt !== nothing
-                print_response(d, val, bt, true, have_color(s))
+                print_response(repl, val, bt, true, have_color(s))
             end
         end
-        println(d.repl.t)
+        println(repl.t)
         reset_state(s)
         transition(s, main)
     end
 end
 
-function reset(d::REPLDisplay{LineEditREPL})
-    raw!(d.repl.t, false)
-    print(Base.text_colors[:normal])
+function reset(repl::LineEditREPL)
+    raw!(repl.t, false)
+    print(repl.t,Base.text_colors[:normal])
 end
 
-function setup_interface(d::REPLDisplay, req, rep; extra_repl_keymap = Dict{Any,Any}[])
+function setup_interface(repl::LineEditREPL; extra_repl_keymap = Dict{Any,Any}[])
     ###
     #
     # This function returns the main interface that describes the REPL
@@ -511,43 +533,41 @@ function setup_interface(d::REPLDisplay, req, rep; extra_repl_keymap = Dict{Any,
 
     ############################### Stage I ################################
 
-    repl = d.repl
-
     # This will provide completions for REPL and help mode
     replc = REPLCompletionProvider(repl)
 
     # Set up the main Julia prompt
     main_prompt = Prompt("julia> ";
         # Copy colors from the prompt object
-        prompt_color = repl.prompt_color,
-        input_color = repl.input_color,
+        prompt_prefix = repl.prompt_color,
+        prompt_suffix = repl.input_color,
         keymap_func_data = repl,
         complete = replc,
         on_enter = s->return_callback(repl, s))
 
-    main_prompt.on_done = respond(Base.parse_input_line, d, main_prompt, req, rep)
+    main_prompt.on_done = respond(Base.parse_input_line, repl, main_prompt)
 
     # Setup help mode
-    help_mode = Prompt("help> ",
-        prompt_color = repl.help_color,
-        input_color = repl.input_color,
+    help_mode = Prompt(" help> ",
+        prompt_prefix = repl.help_color,
+        prompt_suffix = repl.input_color,
         keymap_func_data = repl,
         complete = replc,
         # When we're done transform the entered line into a call to help("$line")
-        on_done = respond(d, main_prompt, req, rep) do line
+        on_done = respond(repl, main_prompt) do line
             parse("Base.@help $line", raise=false)
         end)
 
     # Set up shell mode
     shell_mode = Prompt("shell> ";
-        prompt_color = repl.shell_color,
-        input_color = repl.input_color,
+        prompt_prefix = repl.shell_color,
+        prompt_suffix = repl.input_color,
         keymap_func_data = repl,
         complete = ShellCompletionProvider(repl),
         # Transform "foo bar baz" into `foo bar baz` (shell quoting)
         # and pass into Base.repl_cmd for processing (handles `ls` and `cd`
         # special)
-        on_done = respond(d, main_prompt, req, rep) do line
+        on_done = respond(repl, main_prompt) do line
             Expr(:call, :(Base.repl_cmd), macroexpand(Expr(:macrocall, symbol("@cmd"),line)))
         end)
 
@@ -682,8 +702,18 @@ function setup_interface(d::REPLDisplay, req, rep; extra_repl_keymap = Dict{Any,
     ModalInterface([main_prompt, shell_mode, help_mode,hkp])
 end
 
-run_frontend(repl::LineEditREPL, repl_channel, response_channel) =
-    run_interface(repl.t, setup_interface(REPLDisplay(repl), repl_channel, response_channel))
+function run_frontend(repl::LineEditREPL, backend)
+    d = REPLDisplay(repl)
+    pushdisplay(d)
+    if !isdefined(repl,:interface)
+        interface = repl.interface = setup_interface(repl)
+    else
+        interface = repl.interface
+    end
+    repl.backendref = backend
+    run_interface(repl.t, interface)
+    popdisplay(d)
+end
 
 if isdefined(Base, :banner_color)
     banner(io, t) = banner(io, hascolor(t))
@@ -699,6 +729,8 @@ type StreamREPL <: AbstractREPL
     prompt_color::String
     input_color::String
     answer_color::String
+    waserror::Bool
+    StreamREPL(stream,pc,ic,ac) = new(stream,pc,ic,ac,false)
 end
 
 outstream(s::StreamREPL) = s.stream
@@ -730,10 +762,12 @@ function ends_with_semicolon(line)
     return false
 end
 
-function run_frontend(repl::StreamREPL, repl_channel, response_channel)
+function run_frontend(repl::StreamREPL, backend::REPLBackendRef)
     have_color = true
     banner(repl.stream, have_color)
     d = REPLDisplay(repl)
+    pushdisplay(d)
+    repl_channel, response_channel = backend.repl_channel, backend.response_channel
     while repl.stream.open
         if have_color
             print(repl.stream,repl.prompt_color)
@@ -751,12 +785,13 @@ function run_frontend(repl::StreamREPL, repl_channel, response_channel)
             put!(repl_channel, (ast, 1))
             val, bt = take!(response_channel)
             if !ends_with_semicolon(line)
-                print_response(d, val, bt, true, have_color)
+                print_response(repl, val, bt, true, have_color)
             end
         end
     end
     # Terminate Backend
     put!(repl_channel, (nothing, -1))
+    popdisplay(d)
 end
 
 function start_repl_server(port)

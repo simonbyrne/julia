@@ -138,6 +138,8 @@ function complete_methods(input::String)
     UTF8String[string(m) for m in methods(fn)]
 end
 
+include("latex_symbols.jl")
+
 const non_identifier_chars = [" \t\n\"\\'`\$><=:;|&{}()[],+-*/?%^~"...]
 const non_filename_chars = [" \t\n\"\\'`@\$><=;|&{("...]
 
@@ -164,7 +166,17 @@ function completions(string, pos)
             paths[1] *= "\""
         end
         return sort(paths), r, true
-    elseif inc_tag == :other && string[pos] == '('
+    end
+
+    slashpos = rsearch(string, '\\', pos)
+    if slashpos > 0
+        latex = get(latex_symbols, string[slashpos:pos], "")
+        if !isempty(latex)
+            return [latex], slashpos:pos, true
+        end
+    end
+
+    if inc_tag == :other && string[pos] == '('
         endpos = prevind(string, pos)
         startpos = nextind(string, rsearch(string, non_identifier_chars, endpos))
         return complete_methods(string[startpos:endpos]), startpos:endpos, false
