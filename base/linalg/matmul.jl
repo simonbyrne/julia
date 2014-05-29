@@ -3,15 +3,6 @@
 arithtype(T) = T
 arithtype(::Type{Bool}) = Int
 
-blaschar(A::StridedMatrix) = 'N'
-blaschar(A::TransposeStridedMatrix) = 'T'
-blaschar(A::ConjTransposeStridedMatrix) = 'C'
-
-blasarray(A::StridedMatrix) = A
-blasarray(A::TransposeStridedMatrix) = A.data
-blasarray(A::ConjTransposeStridedMatrix) = A.data
-
-
 # multiply by diagonal matrix as vector
 function scale!(C::AbstractMatrix, A::AbstractMatrix, b::AbstractVector)
     m, n = size(A)
@@ -79,7 +70,7 @@ for elty in (Float32,Float64)
     end
 end
 
-function mul!{T<:BlasFloat}(y::StridedVector{T}, A::NTCStridedMatrix{T}, x::StridedVector{T})
+function mul!{T<:BlasFloat}(y::StridedVector{T}, A::NTC{T,StridedMatrix}, x::StridedVector{T})
     stride(A, 1)==1 || return invoke(mul!,(AbstractVector{T},typeof(A),AbstractVector{T}), y, A, x)
 
     (mA, nA) = size(A)
@@ -91,7 +82,7 @@ function mul!{T<:BlasFloat}(y::StridedVector{T}, A::NTCStridedMatrix{T}, x::Stri
         ## Avoid calling BLAS.gemv! when OpenBLAS is being used until #6941 is fixed.
         invoke(mul!,(AbstractVector{T},typeof(A),AbstractVector{T}), y, A, x)
     else
-        BLAS.gemv!(blaschar(A), one(T), blasarray(A), x, zero(T), y)
+        BLAS.gemv!(blastrans(A), one(T), blasdata(A), x, zero(T), y)
     end
 end
 
@@ -182,7 +173,7 @@ function copytri!(A::StridedMatrix, uplo::Char, conjugate::Bool=false)
     A
 end
 
-function mul!{T<:BlasFloat}(C::StridedMatrix{T}, A::NTCStridedMatrix{T}, B::NTCStridedMatrix{T})
+function mul!{T<:BlasFloat}(C::StridedMatrix{T}, A::NTC{T,StridedMatrix}, B::NTC{T,StridedMatrix})
     (stride(A, 1) == stride(B, 1) == 1) || return invoke(mul!,(AbstractMatrix{T},AbstractMatrix{T},AbstractMatrix{T}), C, A, B)
     
     mA, nA = size(A)
@@ -196,11 +187,11 @@ function mul!{T<:BlasFloat}(C::StridedMatrix{T}, A::NTCStridedMatrix{T}, B::NTCS
     mA == 3 && nA == 3 && nB == 3 && return mul33!(C,A,B)
     
     if istranspose(A,B)
-        copytri!(BLAS.syrk!('U', blaschar(A), one(T), blasarray(A), zero(T), C), 'U')
+        copytri!(BLAS.syrk!('U', blastrans(A), one(T), blasdata(A), zero(T), C), 'U')
     elseif isctranspose(A,B)
-        copytri!(BLAS.herk!('U', blaschar(A), one(T), blasarray(A), zero(T), C), 'U', true)
+        copytri!(BLAS.herk!('U', blastrans(A), one(T), blasdata(A), zero(T), C), 'U', true)
     else
-        BLAS.gemm!(blaschar(A), blaschar(B), one(T), blasarray(A), blasarray(B), zero(T), C)
+        BLAS.gemm!(blastrans(A), blastrans(B), one(T), blasdata(A), blasdata(B), zero(T), C)
     end
 end
 

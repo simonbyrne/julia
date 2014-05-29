@@ -189,6 +189,10 @@ macro chkuplo()
 Valid choices are 'U' (upper) or 'L' (lower).""")))
 end
 
+immutable Inplace{N} end
+Inplace(N) = Inplace{N}()
+
+
 include("linalg/exceptions.jl")
 include("linalg/transpose.jl")
 include("linalg/generic.jl")
@@ -199,7 +203,13 @@ include("linalg/lapack.jl")
 
 include("linalg/dense.jl")
 include("linalg/tridiag.jl")
+
 include("linalg/factorization.jl")
+include("linalg/cholesky.jl")
+include("linalg/qr.jl")
+include("linalg/eigen.jl")
+include("linalg/svd.jl")
+include("linalg/schur.jl")
 include("linalg/lu.jl")
 
 include("linalg/bunchkaufman.jl")

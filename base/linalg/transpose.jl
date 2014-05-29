@@ -27,9 +27,21 @@ typealias TransposeStridedMatrix{T,S<:StridedMatrix} Transpose{T,S}
 typealias ConjTransposeStridedMatrix{T,S<:StridedMatrix} ConjTranspose{T,S}
 typealias NTCStridedMatrix{T} Union(StridedMatrix{T},TransposeStridedMatrix{T},ConjTransposeStridedMatrix{T})
 
+typealias NTC{T,S} Union(S,Transpose{T,S},ConjTranspose{T,S})
+typealias HermTranspose{T<:Real,S} Union(Transpose{T,S},ConjTranspose{Complex{T},S})
+
 typealias CovectorStrided{T,S<:StridedVector} Covector{T,S}
 typealias ConjCovectorStrided{T,S<:StridedVector} ConjCovector{T,S}
 #typealias TCStridedVector{T} Union(CovectorStrided{T},ConjCovectorStrided{T})
+
+blastrans(A::AbstractMatrix) = 'N'
+blastrans(A::Transpose) = 'T'
+blastrans(A::ConjTranspose) = 'C'
+
+blasdata(A::AbstractMatrix) = A
+blasdata(A::Transpose) = A.data
+blasdata(A::ConjTranspose) = A.data
+
 
 # methods called by ' and .'
 # should really have different names,
@@ -143,3 +155,4 @@ full(X::Transpose) = [ X[i,j] for i=1:size(X,1), j=1:size(X,2) ]
 full(X::ConjTranspose) = [ conj(X[i,j]) for i=1:size(X,1), j=1:size(X,2) ]
 
 # Covector ?
+

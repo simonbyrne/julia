@@ -19,6 +19,16 @@ end
 # BlasFloat routines #
 ######################
 
+blaschar(::Triangular) = 'N'
+blaschar(::Transpose{Triangular}) = 'T'
+blaschar(::ConjTranspose{Triangular}) = 'C'
+
+blasdata(A::Triangular) = A
+blasdata(A::Transpose{Triangular}) = A.data
+blasdata(A::ConjTranspose{Triangular}) = A.data
+
+typealias NTCTriangular{T} Union(Triangular{T},Transpose{Triangular{T}},ConjTranspose{Triangular{T}})
+
 # Vector multiplication
 *{T<:BlasFloat}(A::Triangular{T}, b::Vector{T}) = BLAS.trmv(A.uplo, 'N', A.unitdiag, A.UL, b)
 Ac_mul_B{T<:BlasComplex}(A::Triangular{T}, b::Vector{T}) = BLAS.trmv(A.uplo, 'C', A.unitdiag, A.UL, b)
@@ -27,11 +37,16 @@ At_mul_B{T<:BlasReal}(A::Triangular{T}, b::Vector{T}) = BLAS.trmv(A.uplo, 'T', A
 # Matrix multiplication
 *{T<:BlasFloat}(A::Triangular{T}, B::StridedMatrix{T}) = BLAS.trmm('L', A.uplo, 'N', A.unitdiag, one(T), A.UL, B)
 *{T<:BlasFloat}(A::StridedMatrix{T}, B::Triangular{T}) = BLAS.trmm('R', B.uplo, 'N', B.unitdiag, one(T), B.UL, A)
-A_mul_B!{T<:BlasFloat}(A::Triangular{T},B::Matrix{T}) = BLAS.trmm!('L',A.uplo,'N',A.unitdiag,one(eltype(A)),A.UL,B)
-Ac_mul_B!{T<:BlasComplex}(A::Triangular{T}, B::StridedMatrix{T}) = BLAS.trmm('L', A.uplo, 'C', A.unitdiag, one(T), A.UL, B)
-Ac_mul_B!{T<:BlasReal}(A::Triangular{T}, B::StridedMatrix{T}) = BLAS.trmm('L', A.uplo, 'T', A.unitdiag, one(T), A.UL, B)
-A_mul_Bc!{T<:BlasComplex}(A::StridedMatrix{T}, B::Triangular{T}) = BLAS.trmm('R', B.uplo, 'C', B.unitdiag, one(T), B.UL, A)
-A_mul_Bc!{T<:BlasReal}(A::StridedMatrix{T}, B::Triangular{T}) = BLAS.trmm('R', B.uplo, 'T', B.unitdiag, one(T), B.UL, A)
+
+
+function mul!{T<:BlasFloat}(::Inplace{2}, A::NTCTriangular{T}, B::StridedMatrix{T}) 
+    BLAS.trmm!('L', blasdata(A).uplo, blaschar(A), blasdata(A).unitdiag, 
+               one(eltype(A)), blasdata(A).UL, B)
+end
+function mul!{T<:BlasFloat}(::Inplace{1}, B::StridedMatrix{T}, A::NTCTriangular{T}) 
+    BLAS.trmm!('R', blasdata(A).uplo, blaschar(A), blasdata(A).unitdiag, 
+               one(eltype(A)), blasdata(A).UL, B)
+end
 
 
 function \{T<:BlasFloat}(A::Triangular{T}, B::StridedVecOrMat{T})

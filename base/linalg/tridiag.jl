@@ -1,7 +1,8 @@
 #### Specialized matrix types ####
 
 ## Hermitian tridiagonal matrices
-immutable SymTridiagonal{T} <: AbstractMatrix{T}
+abstract AbstractTridiagonal{T} <: AbstractMatrix{T}
+immutable SymTridiagonal{T} <: AbstractTridiagonal{T}
     dv::Vector{T}                        # diagonal
     ev::Vector{T}                        # subdiagonal
     function SymTridiagonal(dv::Vector{T}, ev::Vector{T})
@@ -140,7 +141,7 @@ function getindex{T}(A::SymTridiagonal{T}, i::Integer, j::Integer)
 end
 
 ## Tridiagonal matrices ##
-immutable Tridiagonal{T} <: AbstractMatrix{T}
+immutable Tridiagonal{T} <: AbstractTridiagonal{T}
     dl::Vector{T}    # sub-diagonal
     d::Vector{T}     # diagonal
     du::Vector{T}    # sup-diagonal
@@ -229,12 +230,11 @@ convert{T}(::Type{SymTridiagonal{T}}, M::Tridiagonal) = M.dl==M.du ? (SymTridiag
     error("Tridiagonal is not symmetric, cannot convert to SymTridiagonal")
 convert{T}(::Type{SymTridiagonal{T}},M::SymTridiagonal) = SymTridiagonal(convert(Vector{T}, M.dv), convert(Vector{T}, M.ev))
 
-function A_mul_B!(C::AbstractVecOrMat, A::Tridiagonal, B::AbstractVecOrMat)
+
+function mul!(C::AbstractMatrix, A::AbstractTridiagonal, B::AbstractMatrix)
     size(C,1) == size(B,1) == (nA = size(A,1)) || throw(DimensionMismatch(""))
     size(C,2) == (nB = size(B,2)) || throw(DimensionMismatch(""))
-    l = A.dl
-    d = A.d
-    u = A.du
+    l, d, u = diag(A,-1), diag(A), diag(A,1)
     @inbounds begin
         for j = 1:nB
             C[1,j] = d[1]*B[1,j] + u[1]*B[2,j]
@@ -246,7 +246,55 @@ function A_mul_B!(C::AbstractVecOrMat, A::Tridiagonal, B::AbstractVecOrMat)
     end
     C
 end
-*(A::Tridiagonal, B::AbstractVecOrMat) = A_mul_B!(similar(B), A, B)
+
+function mul!(C::Tridiagonal, A::AbstractTridiagonal, B::AbstractTridiagonal)
+    size(C,1) == size(B,1) == (n = size(A,1)) || throw(DimensionMismatch(""))
+    Al, Ad, Au = diag(A,-1), diag(A), diag(A,1)
+    Bl, Bd, Bu = diag(B,-1), diag(B), diag(B,1)
+    Cl, Cd, Cu = diag(C,-1), diag(C), diag(C,1)
+    @inbounds begin
+        #C[1,1] = A[1,1]*B[1,1] + A[1,2]*B[1,2]
+        Cd[1] = Ad[1]*Bd[1] + Au[1]*Bl[1] 
+        #C[2,1] = A[2,1]*B[1,1] + A[2,2]*B[1,2]
+        Cl[1] = Al[1]*Bd[1] + Ad[2]*Bl[1] #C[2,1]
+        for j = 2:n-1
+            #C[j-1,j] = A[j-1,j-1]*B[j-1,j] + A[j-1,j]*B[j,j]
+            Cu[j-1] = Ad[j-1]*Bu[j-1] + Au[j-1]*Bd[j]
+            #C[j,j] = A[j,j-1]*B[j-1,j] + A[j,j]*B[j,j] + A[j,j+1]*B[j+1,j]
+            Cd[j] = Al[j-1]*Bu[j-1] + Ad[j]*Bd[j] + Au[j]*Bl[j]
+            #C[j+1,j] = A[j+1,j]*B[j,j] + A[j+1,j+1]*B[j+1,j]
+            Cl[j] = Al[j]*Bd[j] + Ad[j+1]*Bl[j] 
+        end
+        #C[j-1,j] = A[j-1,j-1]*B[j-1,j] + A[j-1,j]*B[j,j]
+        Cu[n-1] = Ad[n-1]*Bu[n-1] + Au[n-1]*Bd[n]
+        #C[j,j] = A[j,j-1]*B[j-1,j] + A[j,j]*B[j,j] + A[j,j+1]*B[j+1,j]
+        Cd[n] = Al[n-1]*Bu[n-1] + Ad[n]*Bd[n]
+    end
+    C
+end
+
+function mul!(C::SymTridiagonal, A::SymTridiagonal, B::SymTridiagonal)
+    size(C,1) == size(B,1) == (n = size(A,1)) || throw(DimensionMismatch(""))
+    Ad, Ao = diag(A), diag(A,1)
+    Bd, Bo = diag(B), diag(B,1)
+    Cd, Co = diag(C), diag(C,1)
+    @inbounds begin
+        #C[1,1] = A[1,1]*B[1,1] + A[1,2]*B[1,2]
+        Cd[1] = Ad[1]*Bd[1] + Ao[1]*Bo[1] 
+        #C[2,1] = A[2,1]*B[1,1] + A[2,2]*B[1,2]
+        Co[1] = Ao[1]*Bd[1] + Ad[2]*Bo[1] #C[2,1]
+        for j = 2:n-1
+            #C[j,j] = A[j,j-1]*B[j-1,j] + A[j,j]*B[j,j] + A[j,j+1]*B[j+1,j]
+            Cd[j] = Ao[j-1]*Bo[j-1] + Ao[j]*Bo[j] + Ao[j]*Bo[j]
+            #C[j+1,j] = A[j+1,j]*B[j,j] + A[j+1,j+1]*B[j+1,j]
+            Co[j] = Ao[j]*Bd[j] + Ad[j+1]*Bo[j] 
+        end
+        #C[j,j] = A[j,j-1]*B[j-1,j] + A[j,j]*B[j,j] + A[j,j+1]*B[j+1,j]
+        Cd[n] = Ao[n-1]*Bo[n-1] + Ad[n]*Bd[n]
+    end
+    C
+end
+
 
 A_ldiv_B!(A::Tridiagonal,B::AbstractVecOrMat) = A_ldiv_B!(lufact!(A), B)
 At_ldiv_B!(A::Tridiagonal,B::AbstractVecOrMat) = At_ldiv_B!(lufact!(A), B)
