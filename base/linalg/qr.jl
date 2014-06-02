@@ -122,31 +122,22 @@ end
 for (QRQ, lpkfn) in
     ((:QRCompactWYQ,:gemqrt!),
      (:QRPackedQ,:ormqr!))
+    for (QRT,BlasType) in 
+        ((:($QRQ{T}),:BlasFloat),
+         (:(Transpose{T,$QRQ{T}}),:BlasReal),
+         (:(ConjTranspose{T,$QRQ{T}}),:BlasComplex))
+        @eval begin
+            function mul!{T<:$BlasType}(::Inplace{2}, A::$QRT, B::StridedVecOrMat{T})
+                Q = blasdata(A)
+                (LAPACK.$lpkfn)('L', blastrans(A), Q.factors, Q.T, B)
+            end
+            function mul!{T<:$BlasType}(::Inplace{1}, A::StridedMatrix{T}, B::$QRT)
+                Q = blasdata(B)
+                (LAPACK.$lpkfn)('R', blastrans(B), Q.factors, Q.T, A)
+            end
+        end
+    end
     @eval begin
-        function mul!{T<:BlasFloat}(::Inplace{2}, A::$QRQ{T}, B::StridedVecOrMat{T})
-            Q = A
-            (LAPACK.$lpkfn)('L', 'N', Q.factors, Q.T, B)
-        end
-        function mul!{T<:BlasReal}(::Inplace{2}, A::Transpose{$QRQ{T}}, B::StridedVecOrMat{T})
-            Q = A.data
-            (LAPACK.$lpkfn)('L', 'T', Q.factors, Q.T, B)
-        end
-        function mul!{T<:BlasComplex}(::Inplace{2}, A::ConjTranspose{$QRQ{T}}, B::StridedVecOrMat{T}) 
-            Q = A.data
-            (LAPACK.$lpkfn)('L', 'C', Q.factors, Q.T, B)
-        end
-        function mul!{T<:BlasFloat}(::Inplace{1}, A::StridedMatrix{T}, B::$QRQ{T})
-            Q = B
-            (LAPACK.$lpkfn)('R', 'N', Q.factors, Q.T, A)
-        end
-        function mul!{T<:BlasReal}(::Inplace{1}, A::StridedMatrix{T}, B::Transpose{T,$QRQ{T}})
-            Q = B.data
-            (LAPACK.$lpkfn)('R', 'T', Q.factors, Q.T, A)
-        end
-        function mul!{T<:BlasComplex}(::Inplace{1}, A::StridedMatrix{T}, B::ConjTranspose{T,$QRQ{T}})
-            Q = B.data
-            (LAPACK.$lpkfn)('R', 'C', Q.factors, Q.T, A)
-        end
         mul!(::Inplace{2},A::$QRQ, B::Transpose) = mul!(Inplace(1), B.', A.').'
         mul!(::Inplace{2},A::$QRQ, B::ConjTranspose) = mul!(Inplace(1), B', A')'
     end
