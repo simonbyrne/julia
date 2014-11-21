@@ -342,6 +342,11 @@ extern DLLEXPORT jl_value_t *jl_undefref_exception;
 extern DLLEXPORT jl_value_t *jl_interrupt_exception;
 extern DLLEXPORT jl_value_t *jl_bounds_exception;
 extern DLLEXPORT jl_value_t *jl_an_empty_cell;
+extern DLLEXPORT jl_value_t *jl_divzero_floatexception;
+extern DLLEXPORT jl_value_t *jl_overflow_floatexception;
+extern DLLEXPORT jl_value_t *jl_underflow_floatexception;
+extern DLLEXPORT jl_value_t *jl_inexact_floatexception;
+extern DLLEXPORT jl_value_t *jl_invalid_floatexception;
 
 extern DLLEXPORT jl_datatype_t *jl_bool_type;
 extern DLLEXPORT jl_datatype_t *jl_char_type;

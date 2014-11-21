@@ -133,6 +133,9 @@ export
     BoundsError, DivideError, DomainError, Exception,
     InexactError, InterruptException, MemoryError, OverflowError,
     StackOverflowError, UndefRefError, UndefVarError,
+    DivideByZeroFloatException, OverflowFloatException, UnderflowFloatException,
+    InexactFloatException, InvalidFloatException,
+
     # AST representation
     Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode, SymbolNode, TopNode,
     GetfieldNode, NewvarNode,
@@ -213,6 +216,14 @@ type UndefVarError      <: Exception
     var::Symbol
 end
 type InterruptException <: Exception end
+
+abstract FloatException <: Exception
+type DivideByZeroFloatException <: FloatException end
+type OverflowFloatException     <: FloatException end
+type UnderflowFloatException    <: FloatException end
+type InexactFloatException      <: FloatException end
+type InvalidFloatException      <: FloatException end
+
 
 abstract AbstractString
 abstract DirectIndexString <: AbstractString

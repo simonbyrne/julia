@@ -67,6 +67,11 @@ jl_value_t *jl_undefref_exception;
 jl_value_t *jl_interrupt_exception;
 jl_value_t *jl_bounds_exception;
 jl_value_t *jl_memory_exception;
+jl_value_t *jl_divzero_floatexception;
+jl_value_t *jl_overflow_floatexception;
+jl_value_t *jl_underflow_floatexception;
+jl_value_t *jl_inexact_floatexception;
+jl_value_t *jl_invalid_floatexception;
 
 jl_sym_t *call_sym;    jl_sym_t *dots_sym;
 jl_sym_t *call1_sym;   jl_sym_t *module_sym;

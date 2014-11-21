@@ -279,6 +279,11 @@ static GlobalVariable *jlovferr_var;
 static GlobalVariable *jlinexacterr_var;
 static GlobalVariable *jlboundserr_var;
 static GlobalVariable *jlstderr_var;
+static GlobalVariable *jldivzerofe_var;
+static GlobalVariable *jloverflowfe_var;
+static GlobalVariable *jlunderflowfe_var;
+static GlobalVariable *jlinexactfe_var;
+static GlobalVariable *jlinvalidfe_var;
 static GlobalVariable *jlRTLD_DEFAULT_var;
 #ifdef _OS_WINDOWS_
 static GlobalVariable *jlexe_var;
@@ -4304,6 +4309,18 @@ static void init_julia_llvm_env(Module *m)
                                       (void*)&jl_inexact_exception, m);
     jlboundserr_var = global_to_llvm("jl_bounds_exception",
                                      (void*)&jl_bounds_exception, m);
+    jldivzerofe_var = global_to_llvm("jl_divzero_floatexception",
+                                  (void*)&jl_divzero_floatexception, m);
+    jloverflowfe_var = global_to_llvm("jl_overflow_floatexception",
+                                  (void*)&jl_overflow_floatexception, m);
+    jlunderflowfe_var = global_to_llvm("jl_underflow_floatexception",
+                                  (void*)&jl_underflow_floatexception, m);
+    jlinexactfe_var = global_to_llvm("jl_inexact_floatexception",
+                                  (void*)&jl_inexact_floatexception, m);
+    jlinvalidfe_var = global_to_llvm("jl_invalid_floatexception",
+                                  (void*)&jl_invalid_floatexception, m);
+
+
     jlstderr_var =
         new GlobalVariable(*m, T_int8,
                            true, GlobalVariable::ExternalLinkage,

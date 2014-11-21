@@ -128,15 +128,28 @@ void __cdecl fpe_handler(int arg, int num)
     }
 }
 #else
-void fpe_handler(int arg)
+  void fpe_handler(int arg, siginfo_t *siginfo, void *context)
 {
     (void)arg;
     sigset_t sset;
     sigemptyset(&sset);
     sigaddset(&sset, SIGFPE);
     sigprocmask(SIG_UNBLOCK, &sset, NULL);
-
-    jl_throw(jl_diverror_exception);
+    switch(num) {
+    case FPE_FLTDIV: /* [XSI] floating point divide by zero */
+    case FPE_FLTOVF: /* [XSI] floating point overflow */
+    case FPE_FLTUND: /* [XSI] floating point underflow */
+    case FPE_FLTRES: /* [XSI] floating point inexact result */
+    case FPE_FLTINV: /* [XSI] invalid floating point operation */
+    case FPE_FLTSUB: /* [XSI] subscript out of range -NOTIMP */
+    case FPE_INTOVF: /* [XSI] integer overflow */
+    default:
+      jl_errorf("Unexpected FPE Error 0x%X", num);
+      break;
+    case FPE_INTDIV: /* [XSI] integer divide by zero */
+      jl_throw(jl_diverror_exception);
+      break;
+    }
 }
 #endif
 
@@ -868,8 +881,8 @@ void julia_init(char *imageFile)
     struct sigaction actf;
     memset(&actf, 0, sizeof(struct sigaction));
     sigemptyset(&actf.sa_mask);
-    actf.sa_handler = fpe_handler;
-    actf.sa_flags = 0;
+    actf.sa_sigaction = fpe_handler;
+    actf.sa_flags = SA_SIGINFO;
     if (sigaction(SIGFPE, &actf, NULL) < 0) {
         JL_PRINTF(JL_STDERR, "sigaction: %s\n", strerror(errno));
         jl_exit(1);
@@ -1101,6 +1114,13 @@ void jl_get_builtin_hooks(void)
     jl_interrupt_exception = jl_new_struct((jl_datatype_t*)core("InterruptException"));
     jl_bounds_exception    = jl_new_struct((jl_datatype_t*)core("BoundsError"));
     jl_memory_exception    = jl_new_struct((jl_datatype_t*)core("MemoryError"));
+
+    jl_divzero_floatexception = jl_new_struct((jl_datatype_t*)core("DivideByZeroFloatException"));
+    jl_overflow_floatexception = jl_new_struct((jl_datatype_t*)core("OverflowFloatException"));
+    jl_underflow_floatexception = jl_new_struct((jl_datatype_t*)core("UnderflowFloatException"));
+    jl_inexact_floatexception = jl_new_struct((jl_datatype_t*)core("InexactFloatException"));
+    jl_invalid_floatexception = jl_new_struct((jl_datatype_t*)core("InvalidFloatException"));
+
 
     jl_ascii_string_type = (jl_datatype_t*)core("ASCIIString");
     jl_utf8_string_type = (jl_datatype_t*)core("UTF8String");
