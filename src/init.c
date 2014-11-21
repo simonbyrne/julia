@@ -135,7 +135,7 @@ void __cdecl fpe_handler(int arg, int num)
     sigemptyset(&sset);
     sigaddset(&sset, SIGFPE);
     sigprocmask(SIG_UNBLOCK, &sset, NULL);
-    switch(num) {
+    switch(siginfo->si_code) {
     case FPE_FLTDIV: /* [XSI] floating point divide by zero */
     case FPE_FLTOVF: /* [XSI] floating point overflow */
     case FPE_FLTUND: /* [XSI] floating point underflow */
@@ -144,7 +144,7 @@ void __cdecl fpe_handler(int arg, int num)
     case FPE_FLTSUB: /* [XSI] subscript out of range -NOTIMP */
     case FPE_INTOVF: /* [XSI] integer overflow */
     default:
-      jl_errorf("Unexpected FPE Error 0x%X", num);
+      jl_errorf("Unexpected FPE Error 0x%X", siginfo->si_code);
       break;
     case FPE_INTDIV: /* [XSI] integer divide by zero */
       jl_throw(jl_diverror_exception);
