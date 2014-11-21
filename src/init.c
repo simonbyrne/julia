@@ -137,10 +137,20 @@ void __cdecl fpe_handler(int arg, int num)
     sigprocmask(SIG_UNBLOCK, &sset, NULL);
     switch(siginfo->si_code) {
     case FPE_FLTDIV: /* [XSI] floating point divide by zero */
+      jl_throw(jl_divzero_floatexception);
+      break;
     case FPE_FLTOVF: /* [XSI] floating point overflow */
+      jl_throw(jl_overflow_floatexception);
+      break;
     case FPE_FLTUND: /* [XSI] floating point underflow */
+      jl_throw(jl_underflow_floatexception);
+      break;
     case FPE_FLTRES: /* [XSI] floating point inexact result */
+      jl_throw(jl_inexact_floatexception);
+      break;
     case FPE_FLTINV: /* [XSI] invalid floating point operation */
+      jl_throw(jl_invalid_floatexception);
+      break;
     case FPE_FLTSUB: /* [XSI] subscript out of range -NOTIMP */
     case FPE_INTOVF: /* [XSI] integer overflow */
     default:
